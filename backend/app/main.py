@@ -1,5 +1,6 @@
 from fastapi import FastAPI, UploadFile, File
 from app.services.upload_service import UploadService
+from app.services.pdf_service import PDFService
 
 app=FastAPI()
 
@@ -14,6 +15,14 @@ async def upload_file(file: UploadFile = File(...)):
         "message": "File uploaded successfully!", 
         "result": result
         }
+
+@app.get("/extract-text")
+def extract_text(file_path: str):
+    extracted_text = PDFService.extract_text(file_path)
+    return {
+        "message": "Text extracted successfully!",
+        "extracted_text": extracted_text
+    }
 
 # @app.post("/flashcards")
 # def generate_flashcard(request: FlashcardRequest):
