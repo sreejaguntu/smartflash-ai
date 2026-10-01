@@ -1,5 +1,7 @@
 from pathlib import Path
-import shutil
+import re
+import uuid
+
 from fastapi import UploadFile, HTTPException
 
 
@@ -14,6 +16,8 @@ class UploadService:
     # Upload directory
     UPLOAD_DIR = Path("uploads")
 
+    _DOCUMENT_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
+
     @classmethod
     async def save_file(cls, file: UploadFile):
 
@@ -23,7 +27,7 @@ class UploadService:
         # -------------------------
         # Validate extension
         # -------------------------
-        extension = Path(file.filename).suffix.lower()
+        extension = Path(file.filename or "").suffix.lower()
 
         if extension not in cls.ALLOWED_EXTENSIONS:
             raise HTTPException(
@@ -42,18 +46,34 @@ class UploadService:
                 detail="File size exceeds 10 MB."
             )
 
-        # Reset pointer after reading
-        file.file.seek(0)
+        if not contents.startswith(b"%PDF-"):
+            raise HTTPException(
+                status_code=400,
+                detail="File is not a valid PDF."
+            )
 
         # -------------------------
         # Save file
         # -------------------------
-        file_path = cls.UPLOAD_DIR / file.filename
-
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        # Store under a generated id, never the client-supplied name (path traversal / overwrites).
+        document_id = uuid.uuid4().hex
+        file_path = cls.UPLOAD_DIR / f"{document_id}{extension}"
+        file_path.write_bytes(contents)
 
         return {
-            "filename": file.filename,
+            "document_id": document_id,
+            "filename": Path(file.filename).name,
             "path": str(file_path)
         }
+
+    @classmethod
+    def resolve_path(cls, document_id: str) -> Path:
+        """Return the stored PDF path for a document id, or raise 404."""
+        if not cls._DOCUMENT_ID_PATTERN.match(document_id):
+            raise HTTPException(status_code=400, detail="Invalid document_id.")
+
+        file_path = cls.UPLOAD_DIR / f"{document_id}.pdf"
+        if not file_path.is_file():
+            raise HTTPException(status_code=404, detail="Document not found.")
+
+        return file_path
